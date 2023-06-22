@@ -10,3 +10,6 @@ pandas==1.2.4
 scikit_learn==1.0.2
 scipy==1.7.3
 visbrain==0.4.5
+pyvista==0.39.1
+pyvistaqt==0.10.0
+ipywidgets==8.0.6
