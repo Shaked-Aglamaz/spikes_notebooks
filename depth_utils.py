@@ -315,3 +315,101 @@ def run_all(subjects=['396', '398', '402', '406', '415', '416']):
     feat_all_test.index.name = 'epoch'
 
     return feat_all_train, feat_all_test, y_all_train, y_all_test
+
+
+def channel_feat(edf, channel):
+    raw_data = mne.io.read_raw(edf).pick_channels([channel]).resample(sr).get_data()[0]
+    feat = {
+        'median': np.median(raw_data),
+        'ptp': np.ptp(raw_data),
+        # 'iqr': sp_stats.iqr(chan),
+        # 'skew': sp_stats.skew(chan),
+        # 'kurt': sp_stats.kurtosis(chan),
+        # bf, gf
+    }
+
+    # feat = pd.DataFrame(feat, index=[0])
+
+    return feat
+
+# def run_specific_chan_no_split(channels, subjects=['38', '396', '398', '402', '406', '415', '416']):
+#     x_all = np.empty((0, 250))
+#     y_all = np.empty(0)
+#     feat_all = pd.DataFrame()
+#     y_all_train = np.empty(0)
+#     y_all_test = np.empty(0)
+#     feat_all_train = pd.DataFrame()
+#     feat_all_test = pd.DataFrame()
+#     for subj in subjects:
+#         for channel in channels:
+#             if not ((subj == '396' and 'RAH1' in channel) or (subj == '38' and 'LAH1' in channel)):
+#                 x, x_zscore, y, x_index = format_raw(depth_edf_path % subj, channel)
+#                 features = calc_features_before_split(x, subj)
+#                 x_all = np.concatenate((x_all, x))
+#                 y_all = np.concatenate((y_all, y))
+#                 feat_all = pd.concat([feat_all, features], axis=0)
+#
+#                 X_train, X_test, y_train, y_test = train_test_split(features, y, stratify=y, random_state=20)
+#                 # Add separated norm
+#                 X_train = calc_features_after_split(X_train)
+#                 X_test = calc_features_after_split(X_test)
+#
+#                 feat_all_train = pd.concat([feat_all_train, X_train], axis=0)
+#                 feat_all_test = pd.concat([feat_all_test, X_test], axis=0)
+#                 y_all_train = np.concatenate((y_all_train, y_train))
+#                 y_all_test = np.concatenate((y_all_test, y_test))
+#
+#     feat_all_train = feat_all_train.reset_index(drop=True)
+#     feat_all_train.index.name = 'epoch'
+#     feat_all_test = feat_all_test.reset_index(drop=True)
+#     feat_all_test.index.name = 'epoch'
+#     return feat_all_train, feat_all_test, y_all_train, y_all_test
+
+
+def run_specific_chan_no_split(subjects=['38', '396', '398', '402', '406', '415', '416'], bi=True):
+    channels = ['RAH1-RAH2', 'LAH1-LAH2'] if bi else ['RAH1', 'LAH1']
+    y_all = np.empty(0)
+    feat_all = pd.DataFrame()
+    for subj in subjects:
+        for channel in channels:
+            if not ((subj == '396' and 'RAH1' in channel) or (subj == '38' and 'LAH1' in channel)):
+                x, x_zscore, y, x_index = format_raw(f'C:\\Lilach\\{subj}_for_tag_filtered_fix_tag.edf', channel)
+                y_all = np.concatenate((y_all, y))
+                chan_feat = channel_feat(f'C:\\Lilach\\{subj}_for_tag_filtered_fix_tag.edf', channel)
+                features = calc_features_before_split(x, subj)
+                for feat in chan_feat.keys():
+                    features[feat] = chan_feat[feat]
+
+                feat_all = pd.concat([feat_all, features], axis=0)
+
+    # feat_all = feat_all.drop('epoch', axis=1)
+    feat_all = feat_all.reset_index(drop=True)
+    feat_all.index.name = 'epoch'
+
+    return feat_all, y_all
+
+def run_all_chans_no_split(subjects=['38', '396', '398', '402', '406', '415', '416'], include_bi=False):
+    y_all = np.empty(0)
+    feat_all = pd.DataFrame()
+    for subj in subjects:
+        ch_names = mne.io.read_raw_edf(f'C:\\Lilach\\{subj}_for_tag_filtered_fix_tag.edf').ch_names
+        if not include_bi:
+            ch_names = [x for x in ch_names if '-' not in x and '3' not in x]
+        for channel in ch_names:
+            if not ((subj == '396' and channel[0] == 'R') or (subj == '38' and channel[0] == 'L')):
+                x, x_zscore, y, x_index = format_raw(f'C:\\Lilach\\{subj}_for_tag_filtered_fix_tag.edf', channel)
+                y_all = np.concatenate((y_all, y))
+                chan_feat = channel_feat(f'C:\\Lilach\\{subj}_for_tag_filtered_fix_tag.edf', channel)
+                features = calc_features_before_split(x, subj)
+                for feat in chan_feat.keys():
+                    features[feat] = chan_feat[feat]
+
+                feat_all = pd.concat([feat_all, features], axis=0)
+
+    # feat_all = feat_all.drop('epoch', axis=1)
+    feat_all = feat_all.reset_index(drop=True)
+    feat_all.index.name = 'epoch'
+
+    return feat_all, y_all
+
+# run_all_chans_no_split()

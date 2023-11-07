@@ -6,7 +6,7 @@ from matplotlib import pyplot as plt
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from lightgbm import LGBMClassifier
-from depth_utils import get_metrics, calc_features_before_split, calc_features_after_split
+from depth_utils import get_metrics, calc_features_before_split, calc_features_after_split, channel_feat
 import joblib
 from IPython.display import clear_output
 from sklearn.feature_selection import VarianceThreshold
@@ -15,7 +15,9 @@ from imblearn.over_sampling import SMOTE
 # General params
 sr = 1000
 # scalp_edf_path = 'C:\\Users\\user\\PycharmProjects\\pythonProject\\%s_clean.edf'
+# scalp_edf_path = 'C:\\UCLA\\%s_clean_eog.edf'
 scalp_edf_path = 'C:\\UCLA\\%s_clean_eog.edf'
+mtl_path = 'C:\\UCLA\\%s_clean_mtl_annot.fif'
 only_right = ['017', '018', '025', '38', '422']
 only_left = ['44', '46', '396']
 nrem_sample = {'38': 80, '394': 20, '396': 65, '398': 50, '400': 10, '402': 10, '404': 100, '405': 53, '406': 90, '414': 75, '415': 55,
@@ -32,7 +34,9 @@ features_names_AH = pd.read_csv('results/features_AH_only_7.csv').columns.tolist
 model = joblib.load('results/lgbm_full_no_leak.pkl')
 features_names = pd.read_csv('results/features_lgbm_no_leak.csv').columns.tolist()
 
-all_subject = ['38', '394', '396', '398', '400', '402', '404', '405', '406', '414', '415', '416', '417', '422', '423', '426', '429']
+all_subject = ['394', '396', '398', '400', '402', '404', '405', '406', '414', '415',
+               '416', '417', '422', '423', '426', '429', '489'] + \
+              ['013', '017', '018', '025', '38', '39', '44', '46', '47', '48', '51']
 # rf biased
 subj_eog1 = ['404', '414', '415', '422', '423', '429']
 subj_eog2 = ['398', '402', '405', '406', '416', '417', '426']
@@ -43,7 +47,7 @@ subj_bad = ['394', '396', '400', '405', '417', '422', '423', '426', '429']
 good_subj = [x for x in all_subject if x not in subj_bad]
 
 
-def format_raw_night(edf, channel, norm='raw', subj=None):
+def format_raw_night_without_nan(edf, channel, norm='raw'):
     epochs = []
     window_size = int(sr / 4)
     if '-' in channel and 'REF' not in channel:
@@ -53,10 +57,13 @@ def format_raw_night(edf, channel, norm='raw', subj=None):
         mne.set_bipolar_reference(raw, chans[0], chans[1], ch_name=channel)
         raw_data = raw.get_data()[0]
     else:
-        raw_data = mne.io.read_raw_edf(edf).pick_channels([channel]).resample(sr).get_data()[0]
+        raw_data = mne.io.read_raw_edf(edf).pick_channels([channel])
+        if raw_data.info['sfreq'] != 1000:
+            raw_data.resample(sr)
+        raw_data = raw_data.get_data()[0]
 
     if norm == 'raw':
-        raw_data = (raw_data - raw_data.mean()) / raw_data.std()
+        raw_data = (raw_data - np.nanmean(raw_data)) / np.nanstd(raw_data)
     for i in range(0, len(raw_data), window_size):
         curr_block = raw_data[i: i + window_size]
         if i + window_size < len(raw_data):
@@ -67,6 +74,43 @@ def format_raw_night(edf, channel, norm='raw', subj=None):
     if norm == 'epochs':
         epochs = (epochs - epochs.mean()) / epochs.std()
     return epochs
+
+def format_raw_night(edf, channel):
+    epochs = []
+    window_size = int(sr / 4)
+    raw_data = mne.io.read_raw(edf).pick_channels([channel])
+    if raw_data.info['sfreq'] != sr:
+        raw_data.resample(sr)
+    raw_data = raw_data.get_data(reject_by_annotation='NaN')[0]
+
+    # normalization
+    raw_data = (raw_data - np.nanmean(raw_data)) / np.nanstd(raw_data)
+    for i in range(0, len(raw_data), window_size):
+        curr_block = raw_data[i: i + window_size]
+        if i + window_size < len(raw_data) and not np.isnan(curr_block).any():
+            epochs.append(curr_block)
+
+    epochs = np.array(epochs)
+    return epochs
+
+
+def map_nan_index(edf):
+    window_size = int(sr / 4)
+    raw = mne.io.read_raw(edf)
+    raw_data = raw.pick_channels([raw.ch_names[0]])
+    if raw_data.info['sfreq'] != sr:
+        raw_data.resample(sr)
+    raw_data = raw_data.get_data(reject_by_annotation='NaN')[0]
+    map = []
+
+    for j, i in enumerate(range(0, len(raw_data), window_size)):
+        curr_block = raw_data[i: i + window_size]
+        if i + window_size < len(raw_data):
+            if not np.isnan(curr_block).any():
+                map.append(j)
+            else:
+                print('nan')
+    return map
 
 
 def get_all_y_multi_channel(subjects=['38', '396', '398', '400', '402', '406', '415', '416', '423']):
@@ -114,15 +158,19 @@ def get_all_y_multi_channel(subjects=['38', '396', '398', '400', '402', '406', '
     return y_all
 
 
-def get_all_y_AH(subjects=['38', '396', '398', '400', '402', '406', '415', '416', '423'], bi=False):
-    if bi:
-        model_AH = joblib.load("results/lgbm_bi_only_7.pkl")
+def get_all_y_AH(subjects=['38', '396', '398', '400', '402', '406', '415', '416', '423'], bi=False,
+                 path=scalp_edf_path, model_path=None):
+    if model_path:
+        model_AH = joblib.load(model_path)
+        features_names_AH = model_AH.get_booster().feature_names
     else:
+        if bi:
+            model_AH = joblib.load("results/lgbm_bi_only_7.pkl")
+        else:
+           model_AH = joblib.load('results/lgbm_AH_only_no_p.pkl')
+            # model_AH = joblib.load('results/rf_AH_only_no_p.pkl')
+        features_names_AH = model_AH.feature_name_
 
-        model_AH = joblib.load('results/lgbm_AH_only_no_p.pkl')
-        # model_AH = joblib.load('results/rf_AH_only_no_p.pkl')
-
-    features_names_AH = model_AH.feature_name_
     channels = ['RAH1-RAH2', 'LAH1-LAH2'] if bi else ['RAH1', 'LAH1']
     side1_y = None
     y_all = np.empty(0)
@@ -131,7 +179,7 @@ def get_all_y_AH(subjects=['38', '396', '398', '400', '402', '406', '415', '416'
             if not ((subj in only_left and 'RAH1' in channel) or (subj in only_right and 'LAH1' in channel)):
                 if subj == '426':
                     channel = channel.replace('H', '')
-                x = format_raw_night(scalp_edf_path % subj, channel, subj=subj)
+                x = format_raw_night(path % subj, channel)
                 features = calc_features_after_split(calc_features_before_split(x, subj))
 
                 # Here I have all features for one side
@@ -214,34 +262,32 @@ def format_combine_channel(subj, chans=['PZ','C3','C4'], norm='raw'):
 def get_all_feat_eog(eog_num, subjects=['38', '396', '398', '402', '406', '415', '416']):
     feat_all = pd.DataFrame()
     for subj in subjects:
-        x = format_raw_night(scalp_edf_path % subj, 'EOG' + eog_num, subj=subj)
+        x = format_raw_night(scalp_edf_path % subj, 'EOG' + eog_num)
         features = calc_features_before_split(x, subj)
         feat_all = pd.concat([feat_all, features], axis=0)
 
     return feat_all
 
 
-def channel_feat(edf, channel):
-    raw_data = mne.io.read_raw_edf(edf).pick_channels([channel]).resample(sr).get_data()[0]
-    feat = {
-        'median': np.median(raw_data),
-        'ptp': np.ptp(raw_data),
-        # 'iqr': sp_stats.iqr(chan),
-        # 'skew': sp_stats.skew(chan),
-        # 'kurt': sp_stats.kurtosis(chan),
-        # bf, gf
-    }
 
-    # feat = pd.DataFrame(feat, index=[0])
-
-    return feat
-
-
-def get_all_feat_eog_with_chan_feat(eog_num, subjects=['38', '396', '398', '402', '406', '415', '416'], path=scalp_edf_path):
+def get_all_feat_eog_with_chan_feat(eog_num, subjects=['38', '396', '398', '402', '406', '415', '416'], path=mtl_path):
     feat_all = pd.DataFrame()
     for subj in subjects:
-        x = format_raw_night(path % subj, 'EOG' + eog_num, subj=subj)
+        x = format_raw_night(path % subj, 'EOG' + eog_num)
         chan_feat = channel_feat(path % subj, 'EOG' + eog_num)
+        features = calc_features_before_split(x, subj)
+        for feat in chan_feat.keys():
+            features[feat] = chan_feat[feat]
+        feat_all = pd.concat([feat_all, features], axis=0)
+
+    return feat_all
+
+
+def get_all_feat_chan_with_chan_feat(chan, subjects=['38', '396', '398', '402', '406', '415', '416'], path=scalp_edf_path):
+    feat_all = pd.DataFrame()
+    for subj in subjects:
+        x = format_raw_night(path % subj, chan)
+        chan_feat = channel_feat(path % subj, chan)
         features = calc_features_before_split(x, subj)
         for feat in chan_feat.keys():
             features[feat] = chan_feat[feat]
@@ -486,28 +532,110 @@ def save_features_dicts(subjects=['38', '394', '396', '398', '400', '402', '404'
     joblib.dump(eog2_dict, f'eog2_dict_{file_name}.pkl')
     # joblib.dump(avg_dict, f'avg_dict_{file_name}.pkl')
 
+def save_y(subjects=['38', '394', '396', '398', '400', '402', '404', '405', '406', '414', '415', '416', '417', '423', '426', '429'], detection_func='AH', file_name='all'):
+    y_dict = {}
+    for subj in subjects:
+        if detection_func == 'multi':
+            y = get_all_y_multi_channel(subjects=[subj])
+        elif detection_func == 'AH':
+            y = get_all_y_AH(subjects=[subj], model_path='xgb_AH_no_split.pkl')
+        elif detection_func == 'AH+bi':
+            y = get_all_y_AH_bi(subjects=[subj])
+        clear_output()
+        y_dict[subj] = y
+
+    joblib.dump(y_dict, f'y_dict_{file_name}_{detection_func}.pkl')
+
+# save_y(subjects=['38', '394', '396', '398', '400', '402', '404', '405', '406', '414', '415', '416', '417', '423', '426', '429'] + ['013', '017', '018', '025', '39', '47', '48', '51'], file_name='xgb')
+
+def get_all_chans_y(subjects=['38', '396', '398', '400', '402', '406', '415', '416', '423'], model_path='xgb_all_chan_no_split.pkl', path=mtl_path):
+    model = joblib.load(model_path)
+    features_names_AH = model.get_booster().feature_names if 'xgb' in model_path else model.feature_name_
+    channels = ['RAH1', 'LAH1', 'RA1', 'LA1', 'LEC1', 'REC1', 'RPHG1', 'LPHG1', 'RMH1', 'LMH1', 'LH1', 'RH1',
+                'RAH2', 'LAH2', 'RA2', 'LA2', 'LEC2', 'REC2', 'RPHG2', 'LPHG2', 'RMH2', 'LMH2', 'LH2', 'RH2']
+    y_all = np.empty(0)
+    for subj in subjects:
+        if subj in ['018', '025']:
+            channels = channels + ['RA3']
+        y_curr = None
+        subj_chans = [x for x in mne.io.read_raw(path % subj).ch_names if x in channels]
+        for channel in subj_chans:
+            if not ((subj in only_left and channel[0] == 'R') or (subj in only_right and channel[0] == 'L')):
+                x = format_raw_night(path % subj, channel)
+                features = calc_features_before_split(x, subj)
+                chan_feat = channel_feat(path % subj, channel)
+                for feat in chan_feat.keys():
+                    features[feat] = chan_feat[feat]
+
+                if y_curr is None:
+                    y_curr = model.predict(features[features_names_AH])
+                else:
+                    y_temp = model.predict(features[features_names_AH])
+                    y_curr += y_temp
+
+        y_curr[y_curr > 1] = 1
+        y_all = np.concatenate((y_all, y_curr))
+
+    return y_all
+get_all_chans_y(['49'], path='C:\\UCLA\\P%s_overnightData.edf', model_path='lgbm_all_chan_no_split.pkl')
 
 def save_dicts_with_chan_feat(subjects=['38', '394', '396', '398', '400', '402', '404', '405', '406', '414', '415', '416', '417', '423', '426', '429'], file_name='all'):
+    # get everyone feat and y
+    eog1_dict = {}
+    eog2_dict = {}
+    y_dict = {}
+    n = len(subjects)
+    for subj in subjects:
+        y = get_all_chans_y(subjects=[subj], model_path='lgbm_mtl_depth.pkl')
+        clear_output()
+        y_dict[subj] = y
+        feat_eog1 = get_all_feat_eog_with_chan_feat('1', subjects=[subj])
+        clear_output()
+        eog1_dict[subj] = feat_eog1
+        if subj == '025':
+            feat_eog2 = get_all_feat_eog_with_chan_feat('1', subjects=[subj])
+        else:
+            feat_eog2 = get_all_feat_eog_with_chan_feat('2', subjects=[subj])
+        clear_output()
+        eog2_dict[subj] = feat_eog2
+
+    joblib.dump(y_dict, f'y_dict_{file_name}_{n}.pkl')
+    joblib.dump(eog1_dict, f'eog1_dict_{file_name}_{n}.pkl')
+    joblib.dump(eog2_dict, f'eog2_dict_{file_name}_{n}.pkl')
+
+# save_dicts_with_chan_feat(subjects=all_subject, file_name='multi_ldepth_mtl')
+
+
+
+def save_features_dicts_new(subjects=['38', '394', '396', '398', '400', '402', '404', '405', '406', '414', '415', '416', '417', '423', '426', '429'],
+                            detection_func='AH', file_name='all'):
     # get everyone feat and y
     eog1_dict = {}
     eog2_dict = {}
     avg_dict = {}
     y_dict = {}
     for subj in subjects:
-        # y = get_all_y_AH(subjects=[subj])
+        if detection_func == 'multi':
+            y = get_all_y_multi_channel(subjects=[subj])
+        elif detection_func == 'AH':
+            y = get_all_y_AH(subjects=[subj])
+        elif detection_func == 'AH+bi':
+            y = get_all_y_AH_bi(subjects=[subj])
+        clear_output()
+        y_dict[subj] = y
+        # feat_avg_396_fast = get_all_feat_avg(subjects=[subj])
         # clear_output()
-        # y_dict[subj] = y
-        feat_eog1 = get_all_feat_eog_with_chan_feat('1', subjects=[subj])
+        # avg_dict[subj] = feat_avg_396_fast
+        feat_eog1 = get_all_feat_eog('1', subjects=[subj])
         clear_output()
         eog1_dict[subj] = feat_eog1
-        feat_eog2 = get_all_feat_eog_with_chan_feat('2', subjects=[subj])
+        feat_eog2 = get_all_feat_eog('2', subjects=[subj])
         clear_output()
         eog2_dict[subj] = feat_eog2
 
-    # joblib.dump(y_dict, f'y_dict_{file_name}_{detection_func}.pkl')
+    joblib.dump(y_dict, f'y_dict_{file_name}_{detection_func}.pkl')
     joblib.dump(eog1_dict, f'eog1_dict_{file_name}.pkl')
     joblib.dump(eog2_dict, f'eog2_dict_{file_name}.pkl')
-
-
+    # joblib.dump(avg_dict, f'avg_dict_{file_name}.pkl')
 # save_features_dicts(file_name='clean_eog')
 # save_dicts_with_chan_feat(file_name='with_chan')
