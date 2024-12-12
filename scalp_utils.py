@@ -538,7 +538,7 @@ def save_y(subjects=['38', '394', '396', '398', '400', '402', '404', '405', '406
         if detection_func == 'multi':
             y = get_all_y_multi_channel(subjects=[subj])
         elif detection_func == 'AH':
-            y = get_all_y_AH(subjects=[subj], model_path='xgb_AH_no_split.pkl')
+            y = get_all_y_AH(subjects=[subj], model_path='validation_models/xgb_AH_no_split.pkl')
         elif detection_func == 'AH+bi':
             y = get_all_y_AH_bi(subjects=[subj])
         clear_output()
@@ -577,7 +577,7 @@ def get_all_chans_y(subjects=['38', '396', '398', '400', '402', '406', '415', '4
         y_all = np.concatenate((y_all, y_curr))
 
     return y_all
-get_all_chans_y(['49'], path='C:\\UCLA\\P%s_overnightData.edf', model_path='lgbm_all_chan_no_split.pkl')
+# get_all_chans_y(['49'], path='C:\\UCLA\\P%s_overnightData.edf', model_path='lgbm_all_chan_no_split.pkl')
 
 def save_dicts_with_chan_feat(subjects=['38', '394', '396', '398', '400', '402', '404', '405', '406', '414', '415', '416', '417', '423', '426', '429'], file_name='all'):
     # get everyone feat and y
@@ -586,7 +586,7 @@ def save_dicts_with_chan_feat(subjects=['38', '394', '396', '398', '400', '402',
     y_dict = {}
     n = len(subjects)
     for subj in subjects:
-        y = get_all_chans_y(subjects=[subj], model_path='lgbm_mtl_depth.pkl')
+        y = get_all_chans_y(subjects=[subj], model_path='validation_models/lgbm_mtl_depth.pkl')
         clear_output()
         y_dict[subj] = y
         feat_eog1 = get_all_feat_eog_with_chan_feat('1', subjects=[subj])

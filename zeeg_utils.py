@@ -118,13 +118,11 @@ def raw_chan_to_feat(raw, chan, subj):
             epochs.append(chan_norm[i: i + window_size])
 
     curr_feat = extract_epochs_top_features(epochs, subj, raw.info['sfreq'])
-    # Flatten the nested list using list comprehension
-    clean_chan = [item for sublist in epochs for item in sublist]
     chan_feat = {
         'chan_name': chan,
-        'chan_ptp': np.ptp(clean_chan),
-        'chan_skew': sp_stats.skew(clean_chan),
-        'chan_kurt': sp_stats.kurtosis(clean_chan),
+        'chan_ptp': np.ptp(chan_norm),
+        'chan_skew': sp_stats.skew(chan_norm),
+        'chan_kurt': sp_stats.kurtosis(chan_norm),
     }
 
     for feat in chan_feat.keys():
@@ -245,4 +243,4 @@ def get_all_features_per_chan(chan, subjects):
 # laterality_avg = {}
 # for key, value in laterality.items():
 #     laterality_avg[key] = value.iloc[5,0]
-print('done')
+# print('done')
