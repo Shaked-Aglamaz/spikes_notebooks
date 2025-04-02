@@ -236,9 +236,9 @@ def get_subj_features_zeeg_fast(epochs, subj, sr):
                  'teager_kaiser_energy_5_mean', 'teager_kaiser_energy_5_std']
     )
 
-    pow_freq_bands = mne_features.univariate.compute_pow_freq_bands(data=epochs, sfreq=sr, freq_bands=bands_dict,
-                                                                    normalize=True, ratios=None, ratios_triu=False,
-                                                                    psd_method='multitaper', log=False, psd_params=None)
+    pow_freq_bands = mne_features.univariate.compute_pow_freq_bands(sr, data, bands_dict, normalize=True, ratios=None,
+                                                                    ratios_triu=False, psd_method='multitaper', log=False,
+                                                                    psd_params=None)
     pow_freq_bands_df = pd.DataFrame(np.array(pow_freq_bands).reshape(-1, 6),
                                      columns=['pow_freq_bands_theta', 'pow_freq_bands_alpha', 'pow_freq_bands_sigma',
                                               'pow_freq_bands_beta', 'pow_freq_bands_gamma', 'pow_freq_bands_fast'])
